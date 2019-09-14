@@ -12,9 +12,9 @@ create table t_sequence(
 INSERT into t_sequence SET name = 'seq1', max = 3000;
 ```
 
-基于 MySQL 的 last_insert_id() 函数而写的序列生成工具。
+基于 MySQL 的 `last_insert_id()` 函数而写的序列生成工具。
 
-没有数据库事务也没有专门使用锁。有两个地方用到了同步类：
+效率很高，没有数据库事务也没有专门使用锁。有两个地方用到了同步类：
 
 1. 用 `ConcurrentHashMap` 对象来为每个序列名称保存各自的计数器；
 2. 在计数器中用 `AtomicLong` 对象来计数。
