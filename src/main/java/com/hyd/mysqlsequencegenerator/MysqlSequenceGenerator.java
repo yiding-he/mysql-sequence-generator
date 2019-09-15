@@ -80,11 +80,17 @@ public class MysqlSequenceGenerator {
         public long next() throws SQLException {
             try {
                 return value.updateAndGet(l -> {
-                    debugOutput(l);
+                    // debugOutput(l);
                     if (l + 1 >= max.get()) {
-                        long[] minMax = updateSequence();
-                        max.set(minMax[1]);
-                        return minMax[0];
+                        synchronized (this) {
+                            if (l + 1 >= max.get()) {
+                                long[] minMax = updateSequence();
+                                max.set(minMax[1]);
+                                return minMax[0];
+                            } else {
+                                return l + 1;
+                            }
+                        }
                     } else {
                         return l + 1;
                     }

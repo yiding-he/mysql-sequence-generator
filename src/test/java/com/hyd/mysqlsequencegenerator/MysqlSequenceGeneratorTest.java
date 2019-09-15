@@ -51,7 +51,6 @@ public class MysqlSequenceGeneratorTest {
         };
 
         List<Thread> threads = new ArrayList<>();
-        long start = System.currentTimeMillis();
 
         for (int i = 0; i < 5; i++) {
             Thread thread = new Thread(task);
