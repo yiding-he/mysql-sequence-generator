@@ -22,3 +22,5 @@ INSERT into t_sequence SET name = 'seq1', max = 3000;
 使用方法详见单元测试。
 
 **整个项目只有一个类，且无任何依赖关系，可以直接拷贝到任何项目中使用。**
+
+如果要在 Spring Boot 项目中使用并兼容 Spring 事务，请参考 `com.hyd.mysqlsequencegenerator.MysqlSequenceGeneratorApplication` 源码示例。
