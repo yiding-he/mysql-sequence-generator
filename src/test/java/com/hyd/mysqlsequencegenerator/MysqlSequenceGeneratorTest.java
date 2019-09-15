@@ -4,6 +4,7 @@ import com.mysql.jdbc.Driver;
 import org.apache.commons.dbcp2.BasicDataSource;
 import org.junit.Test;
 
+import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
@@ -25,7 +26,10 @@ public class MysqlSequenceGeneratorTest {
         basicDataSource.setPassword(PASSWORD);
 
         MysqlSequenceGenerator mysqlSequenceGenerator =
-            new MysqlSequenceGenerator(basicDataSource, true, null, null, null, null, null);
+            new MysqlSequenceGenerator(
+                basicDataSource::getConnection, Connection::close,
+                null, null, null, null, null
+            );
 
         mysqlSequenceGenerator.setOnSequenceUpdate((min, max) ->
             System.out.println("Sequence section updated: " + min + " ~ " + max));
