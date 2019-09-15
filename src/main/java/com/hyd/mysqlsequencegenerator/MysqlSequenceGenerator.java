@@ -6,6 +6,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 
@@ -79,6 +80,7 @@ public class MysqlSequenceGenerator {
         public long next() throws SQLException {
             try {
                 return value.updateAndGet(l -> {
+                    debugOutput(l);
                     if (l + 1 >= max.get()) {
                         long[] minMax = updateSequence();
                         max.set(minMax[1]);
@@ -100,6 +102,15 @@ public class MysqlSequenceGenerator {
                 });
             } catch (SQLException e) {
                 throw new SQLExceptionWrapper(e);
+            }
+        }
+
+        private void debugOutput(long l) {
+            try {
+                Thread.sleep(ThreadLocalRandom.current().nextInt(10, 50));
+                System.out.println(Thread.currentThread().getName() + ":" + l + ", " + max.get());
+            } catch (InterruptedException e) {
+                e.printStackTrace();
             }
         }
     }

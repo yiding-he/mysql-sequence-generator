@@ -4,6 +4,7 @@ import com.mysql.jdbc.Driver;
 import org.apache.commons.dbcp2.BasicDataSource;
 import org.junit.Test;
 
+import java.io.FileWriter;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -32,12 +33,16 @@ public class MysqlSequenceGeneratorTest {
             );
 
         mysqlSequenceGenerator.setOnSequenceUpdate((min, max) ->
-            System.out.println("Sequence section updated: " + min + " ~ " + max));
+            System.out.println(Thread.currentThread().getName() + " Sequence section updated: " + min + " ~ " + max));
+
+        List<Long> values = new ArrayList<>();
 
         Runnable task = () -> {
-            for (int i = 0; i < 1000000; i++) {
+            for (int i = 0; i < 50; i++) {
                 try {
-                    mysqlSequenceGenerator.nextLong("seq1");
+                    Long seqValue = mysqlSequenceGenerator.nextLong("seq1");
+                    values.add(seqValue);
+                    System.out.println(Thread.currentThread().getName() + ": [" + seqValue + "]");
                 } catch (SQLException e) {
                     e.printStackTrace();
                     return;
@@ -48,8 +53,9 @@ public class MysqlSequenceGeneratorTest {
         List<Thread> threads = new ArrayList<>();
         long start = System.currentTimeMillis();
 
-        for (int i = 0; i < 50; i++) {
+        for (int i = 0; i < 5; i++) {
             Thread thread = new Thread(task);
+            thread.setName(String.format("Counter%02d", i));
             threads.add(thread);
             thread.start();
         }
@@ -58,6 +64,11 @@ public class MysqlSequenceGeneratorTest {
             thread.join();
         }
 
-        System.out.println("time : " + (System.currentTimeMillis() - start));
+        try(FileWriter fileWriter = new FileWriter("values.txt")) {
+            for (Long value : values) {
+                fileWriter.write(value + "\n");
+            }
+            fileWriter.flush();
+        }
     }
 }
