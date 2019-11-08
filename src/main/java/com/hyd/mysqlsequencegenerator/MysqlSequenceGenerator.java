@@ -5,8 +5,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 
@@ -63,40 +62,98 @@ public class MysqlSequenceGenerator {
         }
     }
 
+    static class Threshold {
+
+        long max;           // max value for current section
+
+        long threshold;     // threshold value for when to fetch new section
+
+        Threshold(long max, long threshold) {
+            this.max = max;
+            this.threshold = threshold;
+        }
+
+        boolean needFetch(long seq) {
+            return seq + 1 >= threshold;
+        }
+
+        boolean runOut(long seq) {
+            return seq + 1 >= max;
+        }
+    }
+
+    //////////////////////////////////////////////////////////////
+
     class Counter {
 
         String sequenceName;
 
-        AtomicLong max = new AtomicLong();
+        Threshold threshold;
 
         AtomicLong value = new AtomicLong();
+
+        volatile Future<Long> future;
 
         public Counter(String sequenceName, long min, long max) {
             this.sequenceName = sequenceName;
             this.value.set(min);
-            this.max.set(max);
+            this.threshold = new Threshold(max, max);
         }
 
         public long next() throws SQLException {
             try {
-                return value.updateAndGet(l -> {
-                    // debugOutput(l);
-                    if (l + 1 >= max.get()) {
-                        synchronized (this) {
-                            if (l + 1 >= max.get()) {
-                                long[] minMax = updateSequence();
-                                max.set(minMax[1]);
-                                return minMax[0];
-                            } else {
-                                return l + 1;
-                            }
-                        }
-                    } else {
-                        return l + 1;
-                    }
-                });
+                return value.updateAndGet(seq -> asyncFetch? nextAsync(seq): nextSync(seq));
             } catch (SQLExceptionWrapper e) {
                 throw e.getCause();
+            }
+        }
+
+        private long nextAsync(long seq) {
+            if (threshold.needFetch(seq) && future == null) {
+                synchronized (this) {
+                    if (future == null) {
+                        future = asyncFetcher.submit(() -> {
+                            long[] minMax = updateSequence();
+                            long t = (minMax[1] - minMax[0]) / 2 + minMax[0];
+                            threshold = new Threshold(minMax[1], t);
+                            return minMax[0];
+                        });
+                    }
+                }
+            }
+
+            if (threshold.runOut(seq)) {
+                synchronized (this) {
+                    if (threshold.runOut(seq)) {
+                        try {
+                            final Long l = future.get();
+                            future = null;
+                            return l;
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+                    } else {
+                        return seq + 1;
+                    }
+                }
+            } else {
+                return seq + 1;
+            }
+        }
+
+        private long nextSync(long seq) {
+            if (threshold.needFetch(seq)) {
+                synchronized (this) {
+                    if (threshold.needFetch(seq)) {
+                        long[] minMax = updateSequence();
+                        threshold = new Threshold(minMax[1], minMax[1]);
+                        return minMax[0];
+                    } else {
+                        return seq + 1;
+                    }
+                }
+            } else {
+                return seq + 1;
             }
         }
 
@@ -112,12 +169,16 @@ public class MysqlSequenceGenerator {
         }
 
         private void debugOutput(long l) {
-            try {
-                Thread.sleep(ThreadLocalRandom.current().nextInt(10, 50));
-                System.out.println(Thread.currentThread().getName() + ":" + l + ", " + max.get());
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
+            sleep(10, 50);
+            System.out.println(Thread.currentThread().getName() + ":" + l + ", " + threshold.threshold);
+        }
+    }
+
+    private static void sleep(int min, int max) {
+        try {
+            Thread.sleep(ThreadLocalRandom.current().nextInt(min, max));
+        } catch (InterruptedException e) {
+            e.printStackTrace();
         }
     }
 
@@ -134,6 +195,13 @@ public class MysqlSequenceGenerator {
     private Map<String, Counter> counters = new ConcurrentHashMap<>();
 
     private BiConsumer<Long, Long> onSequenceUpdate;
+
+    /**
+     * Whether or not fetch next sequence section with a daemon thread
+     */
+    private boolean asyncFetch = false;
+
+    private ExecutorService asyncFetcher = Executors.newSingleThreadExecutor();
 
     /**
      * Constructor.
@@ -182,6 +250,10 @@ public class MysqlSequenceGenerator {
 
     public void setOnSequenceUpdate(BiConsumer<Long, Long> onSequenceUpdate) {
         this.onSequenceUpdate = onSequenceUpdate;
+    }
+
+    public void setAsyncFetch(boolean asyncFetch) {
+        this.asyncFetch = asyncFetch;
     }
 
     ////////////////////////////////////////////////////////////
