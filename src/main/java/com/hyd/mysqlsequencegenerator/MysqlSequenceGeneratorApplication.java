@@ -1,18 +1,15 @@
 package com.hyd.mysqlsequencegenerator;
 
+import java.sql.Connection;
+import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.*;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.jdbc.datasource.DataSourceUtils;
-
-import javax.sql.DataSource;
-import java.sql.Connection;
 
 /**
  * 示例：如何在 Spring Boot 项目中使用 MysqlSequenceGenerator
@@ -37,7 +34,7 @@ public class MysqlSequenceGeneratorApplication {
     ) {
         return new MysqlSequenceGenerator(
             dataSource::getConnection, Connection::close,
-            tableName, null, null, null, null
+            tableName, null, null, null, null, null
         );
     }
 
@@ -53,7 +50,7 @@ public class MysqlSequenceGeneratorApplication {
         return new MysqlSequenceGenerator(
             () -> DataSourceUtils.getConnection(dataSource),
             conn -> DataSourceUtils.releaseConnection(conn, dataSource),
-            null, null, null, null, null
+            null, null, null, null, null, null
         );
     }
 
