@@ -1,6 +1,7 @@
 package com.hyd.mysqlsequencegenerator;
 
 import java.sql.Connection;
+import java.util.Collections;
 import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,7 +35,7 @@ public class MysqlSequenceGeneratorApplication {
     ) {
         return new MysqlSequenceGenerator(
             dataSource::getConnection, Connection::close,
-            tableName, null, null, null, null, null
+            tableName, false, Collections.emptyList()
         );
     }
 
@@ -50,7 +51,7 @@ public class MysqlSequenceGeneratorApplication {
         return new MysqlSequenceGenerator(
             () -> DataSourceUtils.getConnection(dataSource),
             conn -> DataSourceUtils.releaseConnection(conn, dataSource),
-            null, null, null, null, null, null
+            null, false, Collections.emptyList()
         );
     }
 

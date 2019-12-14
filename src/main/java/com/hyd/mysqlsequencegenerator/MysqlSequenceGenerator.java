@@ -5,10 +5,11 @@ import static java.util.Optional.ofNullable;
 import java.sql.*;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
+import java.util.function.Function;
 
 public class MysqlSequenceGenerator {
 
@@ -16,13 +17,15 @@ public class MysqlSequenceGenerator {
 
     public static final String DEFAULT_UPDATE = "update #table# " +
         "set #seqvalue# = last_insert_id(" +
-        "  if(#seqvalue# + #step# > #max#, 0, #seqvalue# + #step#)" +
+        "  if(#seqvalue# + #step# > #max#, #min#, #seqvalue# + #step#)" +
         ") where #seqname# = ?";
 
     public static final String SEQ_SEGMENT_QUERY = "SELECT " +
         "last_insert_id(), last_insert_id() + #step# FROM #table#";
 
-    public static final String SEQ_CODE_QUERY = "select #code# code, #max# max "
+    private static final String CODE_COLUMN = "#code# code,";
+
+    public static final String SEQ_CODE_QUERY = "select {{CODE_COLUMN}} #max# "
         + "from #table# where #seqname# = ?";
 
     public static final String DEFAULT_TABLE_NAME = "t_sequence";
@@ -35,9 +38,9 @@ public class MysqlSequenceGenerator {
 
     public static final String DEFAULT_SEQ_STEP_COLUMN = "step";
 
-    public static final String DEFAULT_SEQ_MAX_COLUMN = "max";
+    public static final String DEFAULT_SEQ_MIN_COLUMN = "min";
 
-    private static final Map<String, SeqInfo> SEQ_INFO_MAP = new ConcurrentHashMap<>();
+    public static final String DEFAULT_SEQ_MAX_COLUMN = "max";
 
     ////////////////////////////////////////////////////////////
 
@@ -60,9 +63,10 @@ public class MysqlSequenceGenerator {
     }
 
     static class SeqInfo {
+
         private String code;
+
         private long max;
-        private long timestamp = System.currentTimeMillis();
     }
 
     static class SQLExceptionWrapper extends RuntimeException {
@@ -96,6 +100,67 @@ public class MysqlSequenceGenerator {
         }
     }
 
+    public enum Column {
+        Name(DEFAULT_SEQ_NAME_COLUMN), Code(DEFAULT_SEQ_CODE_COLUMN), Value(DEFAULT_SEQ_VALUE_COLUMN),
+        Min(DEFAULT_SEQ_MIN_COLUMN), Max(DEFAULT_SEQ_MAX_COLUMN), Step(DEFAULT_SEQ_STEP_COLUMN);
+
+        private String defaultColumnName;
+
+        Column(String defaultColumnName) {
+            this.defaultColumnName = defaultColumnName;
+        }
+
+        public String getDefaultColumnName() {
+            return defaultColumnName;
+        }
+    }
+
+    public static class ColumnInfo {
+
+        private Column column;
+
+        private String value = null;
+
+        public static ColumnInfo undefined(Column c) {
+            ColumnInfo ci = new ColumnInfo();
+            ci.column = c;
+            ci.value = null;
+            return ci;
+        }
+
+        public static ColumnInfo defaultName(Column c) {
+            ColumnInfo ci = new ColumnInfo();
+            ci.column = c;
+            ci.value = c.getDefaultColumnName();
+            return ci;
+        }
+
+        public static ColumnInfo customName(Column c, String name) {
+            ColumnInfo ci = new ColumnInfo();
+            ci.column = c;
+            ci.value = name;
+            return ci;
+        }
+    }
+
+    public static class MysqlSequenceException extends RuntimeException {
+
+        public MysqlSequenceException() {
+        }
+
+        public MysqlSequenceException(String message) {
+            super(message);
+        }
+
+        public MysqlSequenceException(String message, Throwable cause) {
+            super(message, cause);
+        }
+
+        public MysqlSequenceException(Throwable cause) {
+            super(cause);
+        }
+    }
+
     //////////////////////////////////////////////////////////////
 
     class Counter {
@@ -114,11 +179,11 @@ public class MysqlSequenceGenerator {
             this.threshold = new Threshold(max, max);
         }
 
-        public long next() throws SQLException {
+        public long next() throws MysqlSequenceException {
             try {
                 return value.updateAndGet(seq -> asyncFetch ? nextAsync(seq) : nextSync(seq));
             } catch (SQLExceptionWrapper e) {
-                throw e.getCause();
+                throw new MysqlSequenceException(e.getCause());
             }
         }
 
@@ -172,14 +237,10 @@ public class MysqlSequenceGenerator {
         }
 
         private long[] updateSequence() {
-            try {
-                return withConnection(connection -> {
-                    executeUpdate(connection, sequenceName);
-                    return querySegment(connection);
-                });
-            } catch (SQLException e) {
-                throw new SQLExceptionWrapper(e);
-            }
+            return withConnection(connection -> {
+                executeUpdate(connection, sequenceName);
+                return querySegment(connection);
+            });
         }
 
         private void debugOutput(long l) {
@@ -208,8 +269,6 @@ public class MysqlSequenceGenerator {
 
     private String queryCodeTemplate;
 
-    private String seqCodeColumn, seqMaxColumn;
-
     private Map<String, Counter> counters = new ConcurrentHashMap<>();
 
     private BiConsumer<Long, Long> onSequenceUpdate;
@@ -217,9 +276,70 @@ public class MysqlSequenceGenerator {
     /**
      * Whether or not fetch next sequence section with a daemon thread
      */
-    private boolean asyncFetch = false;
+    private boolean asyncFetch;
+
+    private Map<Column, ColumnInfo> columnInfoMap;
 
     private ExecutorService asyncFetcher = Executors.newSingleThreadExecutor();
+
+    //////////////////////////////////////////////////////////////
+
+    public static class Config {
+
+        private String tableName;
+
+        private boolean asyncFetch;
+
+        private List<ColumnInfo> columnInfos = new ArrayList<>();
+
+        public String getTableName() {
+            return tableName;
+        }
+
+        public void setTableName(String tableName) {
+            this.tableName = tableName;
+        }
+
+        public boolean isAsyncFetch() {
+            return asyncFetch;
+        }
+
+        public void setAsyncFetch(boolean asyncFetch) {
+            this.asyncFetch = asyncFetch;
+        }
+
+        public List<ColumnInfo> getColumnInfos() {
+            return columnInfos;
+        }
+
+        public void setColumnInfos(List<ColumnInfo> columnInfos) {
+            this.columnInfos = columnInfos;
+        }
+    }
+
+    /**
+     * Constructor.
+     *
+     * @param connectionSupplier how to get a JDBC Connection object before database operation
+     * @param config             configurations
+     */
+    public MysqlSequenceGenerator(ConnectionSupplier connectionSupplier, Config config
+    ) {
+        this(connectionSupplier, Connection::close, config);
+    }
+
+    /**
+     * Constructor.
+     *
+     * @param connectionSupplier how to get a JDBC Connection object before database operation
+     * @param connectionCloser   how to deal with Connection object after database operation
+     * @param config             configurations
+     */
+    public MysqlSequenceGenerator(
+        ConnectionSupplier connectionSupplier, ConnectionCloser connectionCloser, Config config
+    ) {
+        this(connectionSupplier, connectionCloser, config.tableName, config.asyncFetch, config.columnInfos);
+    }
 
     /**
      * Constructor.
@@ -227,34 +347,41 @@ public class MysqlSequenceGenerator {
      * @param connectionSupplier how to get a JDBC Connection object before database operation
      * @param connectionCloser   how to deal with Connection object after database operation
      * @param tableName          (nullable) customized sequence table name
-     * @param seqValueColumn     (nullable) customized column name for current sequence value
-     * @param seqNameColumn      (nullable) customized column name for sequence name
-     * @param seqStepColumn      (nullable) customized column name for sequence step
-     * @param seqMaxColumn       (nullable) customized column name for sequence max value
+     * @param asyncFetch         whether to fetch new segment asynchronously
+     * @param columnInfos        columns configuration
      */
     public MysqlSequenceGenerator(
         ConnectionSupplier connectionSupplier, ConnectionCloser connectionCloser,
-        String tableName, String seqValueColumn, String seqNameColumn, String seqCodeColumn,
-        String seqStepColumn, String seqMaxColumn
+        String tableName, boolean asyncFetch, List<ColumnInfo> columnInfos
     ) {
 
+        Map<Column, ColumnInfo> cmap = new HashMap<>();
+        columnInfos.forEach(info -> cmap.put(info.column, info));
+        for (Column c : Column.values()) {
+            if (!cmap.containsKey(c)) {
+                cmap.put(c, ColumnInfo.defaultName(c));
+            }
+        }
+        this.columnInfoMap = cmap;
+
+        Function<ColumnInfo, String> getValue = i -> i.value;
         tableName = ofNullable(tableName).orElse(DEFAULT_TABLE_NAME);
-        seqNameColumn = ofNullable(seqNameColumn).orElse(DEFAULT_SEQ_NAME_COLUMN);
-        seqValueColumn = ofNullable(seqValueColumn).orElse(DEFAULT_SEQ_VALUE_COLUMN);
-        seqStepColumn = ofNullable(seqStepColumn).orElse(DEFAULT_SEQ_STEP_COLUMN);
-        seqMaxColumn = ofNullable(seqMaxColumn).orElse(DEFAULT_SEQ_MAX_COLUMN);
-        seqCodeColumn = ofNullable(seqCodeColumn).orElse(DEFAULT_SEQ_CODE_COLUMN);
+        String seqNameColumn = ofNullable(cmap.get(Column.Name)).map(getValue).orElse(DEFAULT_SEQ_NAME_COLUMN);
+        String seqCodeColumn = ofNullable(cmap.get(Column.Code)).map(getValue).orElse(DEFAULT_SEQ_CODE_COLUMN);
+        String seqValueColumn = ofNullable(cmap.get(Column.Value)).map(getValue).orElse(DEFAULT_SEQ_VALUE_COLUMN);
+        String seqMinColumn = ofNullable(cmap.get(Column.Min)).map(getValue).orElse(DEFAULT_SEQ_MIN_COLUMN);
+        String seqMaxColumn = ofNullable(cmap.get(Column.Max)).map(getValue).orElse(DEFAULT_SEQ_MAX_COLUMN);
+        String seqStepColumn = ofNullable(cmap.get(Column.Step)).map(getValue).orElse(DEFAULT_SEQ_STEP_COLUMN);
 
         this.connectionSupplier = connectionSupplier;
         this.connectionCloser = connectionCloser;
-        this.seqCodeColumn = seqCodeColumn;
-        this.seqMaxColumn = seqMaxColumn;
 
         this.updateTemplate = DEFAULT_UPDATE
             .replace("#table#", tableName)
             .replace("#seqvalue#", seqValueColumn)
             .replace("#step#", seqStepColumn)
             .replace("#seqname#", seqNameColumn)
+            .replace("#min#", getColumnName(Column.Min) == null ? "0" : seqMinColumn)
             .replace("#max#", seqMaxColumn);
 
         this.querySegmentTemplate = SEQ_SEGMENT_QUERY
@@ -262,10 +389,13 @@ public class MysqlSequenceGenerator {
             .replace("#step#", seqStepColumn);
 
         this.queryCodeTemplate = SEQ_CODE_QUERY
+            .replace("{{CODE_COLUMN}}", getColumnName(Column.Code) == null ? "" : CODE_COLUMN)
             .replace("#code#", seqCodeColumn)
             .replace("#max#", seqMaxColumn)
             .replace("#table#", tableName)
             .replace("#seqname#", seqNameColumn);
+
+        this.asyncFetch = asyncFetch;
     }
 
     public String getUpdateTemplate() {
@@ -284,44 +414,64 @@ public class MysqlSequenceGenerator {
         this.onSequenceUpdate = onSequenceUpdate;
     }
 
-    public void setAsyncFetch(boolean asyncFetch) {
-        this.asyncFetch = asyncFetch;
+    ////////////////////////////////////////////////////////////
+
+    /**
+     * Get next numeric value of sequence
+     */
+    public Long nextLong(String sequenceName) throws MysqlSequenceException {
+        Counter counter = counters.computeIfAbsent(sequenceName, s -> new Counter(s, 0, 0));
+        return counter.next();
     }
 
-    ////////////////////////////////////////////////////////////
+    /**
+     * Get a string sequence with formatting: yyyyMMdd+code+seq
+     */
+    public String nextSequence(String sequenceName) throws MysqlSequenceException {
+        return nextSequence(sequenceName, null);
+    }
+
+    /**
+     * Get a string sequence with formatting: yyyyMMdd+code+seq
+     */
+    public String nextSequence(String sequenceName, String code) throws MysqlSequenceException {
+        Counter counter = counters.computeIfAbsent(sequenceName, s -> new Counter(s, 0, 0));
+        Long nextLong = counter.next();
+
+        String today = DATE_FORMATTER.format(LocalDate.now());
+        boolean hasCode = code == null;
+        SeqInfo seqInfo = withConnection(conn -> querySeqInfo(conn, sequenceName, hasCode));
+        int length = (int) Math.log10(seqInfo.max) + 1;
+
+        return today + (code != null ? code : seqInfo.code) + String.format("%0" + length + "d", nextLong);
+    }
+
+    //////////////////////////////////////////////////////////////
+
+    private String getColumnName(Column c) {
+        return columnInfoMap.containsKey(c)? columnInfoMap.get(c).value: null;
+    }
 
     private ConnectionSupplier dataSource() {
         return ofNullable(this.connectionSupplier)
             .orElseThrow(() -> new IllegalStateException("connectionSupplier is null"));
     }
 
-    public Long nextLong(String sequenceName) throws SQLException {
-        Counter counter = counters.computeIfAbsent(sequenceName, s -> new Counter(s, 0, 0));
-        return counter.next();
-    }
-
-    public String nextSequence(String sequenceName) throws SQLException {
-        Counter counter = counters.computeIfAbsent(sequenceName, s -> new Counter(s, 0, 0));
-        Long nextLong = counter.next();
-
-        String today = DATE_FORMATTER.format(LocalDate.now());
-        SeqInfo seqInfo = withConnection(conn -> querySeqInfo(conn, sequenceName));
-        int length = (int) Math.log10(seqInfo.max) + 1;
-
-        return today + seqInfo.code + String.format("%0" + length + "d", nextLong);
-    }
-
-    private <T> T withConnection(F<Connection, T> f) throws SQLException {
-        Connection connection = dataSource().get();
-
-        if (connection == null) {
-            throw new IllegalStateException("Connection is null");
-        }
-
+    private <T> T withConnection(F<Connection, T> f) throws MysqlSequenceException {
         try {
-            return f.f(connection);
-        } finally {
-            connectionCloser.close(connection);
+            Connection connection = dataSource().get();
+
+            if (connection == null) {
+                throw new IllegalStateException("Connection is null");
+            }
+
+            try {
+                return f.f(connection);
+            } finally {
+                connectionCloser.close(connection);
+            }
+        } catch (SQLException e) {
+            throw new MysqlSequenceException(e);
         }
     }
 
@@ -355,23 +505,23 @@ public class MysqlSequenceGenerator {
         throw new IllegalStateException("query result is empty");
     }
 
-    private SeqInfo querySeqInfo(Connection connection, String seqName) throws SQLException {
+    private SeqInfo querySeqInfo(Connection connection, String seqName, boolean hasCode) throws SQLException {
         try (
-            PreparedStatement ps = createPs(connection, seqName);
+            PreparedStatement ps = createPs(connection, this.queryCodeTemplate, seqName);
             ResultSet rs = ps.executeQuery()
         ) {
             if (rs.next()) {
                 SeqInfo seqInfo = new SeqInfo();
-                seqInfo.code = rs.getString(this.seqCodeColumn);
-                seqInfo.max = rs.getLong(this.seqMaxColumn);
+                seqInfo.max = rs.getLong(getColumnName(Column.Max));
+                seqInfo.code = hasCode ? rs.getString(getColumnName(Column.Code)) : null;
                 return seqInfo;
             }
         }
         throw new IllegalStateException("query result is empty");
     }
 
-    private PreparedStatement createPs(Connection connection, Object... args) throws SQLException {
-        PreparedStatement ps = connection.prepareStatement(this.queryCodeTemplate);
+    private PreparedStatement createPs(Connection connection, String sql, Object... args) throws SQLException {
+        PreparedStatement ps = connection.prepareStatement(sql);
         for (int i = 0; i < args.length; i++) {
             ps.setObject(i + 1, args[i]);
         }

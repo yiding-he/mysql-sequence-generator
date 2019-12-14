@@ -1,10 +1,10 @@
 package com.hyd.mysqlsequencegenerator;
 
+import com.hyd.mysqlsequencegenerator.MysqlSequenceGenerator.Column;
+import com.hyd.mysqlsequencegenerator.MysqlSequenceGenerator.ColumnInfo;
 import com.mysql.jdbc.Driver;
 import java.sql.Connection;
-import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 import org.apache.commons.dbcp2.BasicDataSource;
 import org.junit.Test;
@@ -37,7 +37,7 @@ public class MysqlSequenceGeneratorTest {
                 try {
                     mysqlSequenceGenerator.nextLong("seq1");
                     counter.incrementAndGet();
-                } catch (SQLException e) {
+                } catch (Exception e) {
                     e.printStackTrace();
                     return;
                 }
@@ -75,7 +75,10 @@ public class MysqlSequenceGeneratorTest {
         MysqlSequenceGenerator mysqlSequenceGenerator =
             new MysqlSequenceGenerator(
                 basicDataSource::getConnection, Connection::close,
-                null, null, null, null, null, null
+                null, false,
+                Collections.singletonList(
+                    ColumnInfo.undefined(Column.Min)
+                )
             );
 
         // 侦听序列更新事件
