@@ -1,15 +1,23 @@
 package com.hyd.mysqlsequencegenerator;
 
-import static java.util.Optional.ofNullable;
-
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
-import java.util.function.Function;
+
+import static java.util.Optional.ofNullable;
 
 public class MysqlSequenceGenerator {
 
@@ -29,18 +37,6 @@ public class MysqlSequenceGenerator {
         + "from #table# where #seqname# = ?";
 
     public static final String DEFAULT_TABLE_NAME = "t_sequence";
-
-    public static final String DEFAULT_SEQ_NAME_COLUMN = "name";
-
-    public static final String DEFAULT_SEQ_CODE_COLUMN = "code";
-
-    public static final String DEFAULT_SEQ_VALUE_COLUMN = "value";
-
-    public static final String DEFAULT_SEQ_STEP_COLUMN = "step";
-
-    public static final String DEFAULT_SEQ_MIN_COLUMN = "min";
-
-    public static final String DEFAULT_SEQ_MAX_COLUMN = "max";
 
     ////////////////////////////////////////////////////////////
 
@@ -69,17 +65,6 @@ public class MysqlSequenceGenerator {
         private long max;
     }
 
-    static class SQLExceptionWrapper extends RuntimeException {
-
-        SQLExceptionWrapper(SQLException cause) {
-            super(cause);
-        }
-
-        public SQLException getCause() {
-            return (SQLException) super.getCause();
-        }
-    }
-
     static class Threshold {
 
         long max;           // max value for current section
@@ -100,9 +85,12 @@ public class MysqlSequenceGenerator {
         }
     }
 
+    /**
+     * Customizable columns
+     */
     public enum Column {
-        Name(DEFAULT_SEQ_NAME_COLUMN), Code(DEFAULT_SEQ_CODE_COLUMN), Value(DEFAULT_SEQ_VALUE_COLUMN),
-        Min(DEFAULT_SEQ_MIN_COLUMN), Max(DEFAULT_SEQ_MAX_COLUMN), Step(DEFAULT_SEQ_STEP_COLUMN);
+        Name("name"), Code("code"), Value("value"),
+        Min("min"), Max("max"), Step("step");
 
         private String defaultColumnName;
 
@@ -115,12 +103,17 @@ public class MysqlSequenceGenerator {
         }
     }
 
+    /**
+     * Column info after customization
+     */
     public static class ColumnInfo {
 
         private Column column;
 
         private String value = null;
 
+        // Specify if a column is missing in actual sequence table
+        // For now only `min` and `code` are supported
         public static ColumnInfo undefined(Column c) {
             ColumnInfo ci = new ColumnInfo();
             ci.column = c;
@@ -135,6 +128,7 @@ public class MysqlSequenceGenerator {
             return ci;
         }
 
+        // Specify if you have a different column name
         public static ColumnInfo customName(Column c, String name) {
             ColumnInfo ci = new ColumnInfo();
             ci.column = c;
@@ -144,17 +138,6 @@ public class MysqlSequenceGenerator {
     }
 
     public static class MysqlSequenceException extends RuntimeException {
-
-        public MysqlSequenceException() {
-        }
-
-        public MysqlSequenceException(String message) {
-            super(message);
-        }
-
-        public MysqlSequenceException(String message, Throwable cause) {
-            super(message, cause);
-        }
 
         public MysqlSequenceException(Throwable cause) {
             super(cause);
@@ -182,8 +165,8 @@ public class MysqlSequenceGenerator {
         public long next() throws MysqlSequenceException {
             try {
                 return value.updateAndGet(seq -> asyncFetch ? nextAsync(seq) : nextSync(seq));
-            } catch (SQLExceptionWrapper e) {
-                throw new MysqlSequenceException(e.getCause());
+            } catch (Exception e) {
+                throw new MysqlSequenceException(e);
             }
         }
 
@@ -241,19 +224,6 @@ public class MysqlSequenceGenerator {
                 executeUpdate(connection, sequenceName);
                 return querySegment(connection);
             });
-        }
-
-        private void debugOutput(long l) {
-            sleep(10, 50);
-            System.out.println(Thread.currentThread().getName() + ":" + l + ", " + threshold.threshold);
-        }
-    }
-
-    private static void sleep(int min, int max) {
-        try {
-            Thread.sleep(ThreadLocalRandom.current().nextInt(min, max));
-        } catch (InterruptedException e) {
-            e.printStackTrace();
         }
     }
 
@@ -355,6 +325,7 @@ public class MysqlSequenceGenerator {
         String tableName, boolean asyncFetch, List<ColumnInfo> columnInfos
     ) {
 
+        // Create and fill this.columnInfoMap
         Map<Column, ColumnInfo> cmap = new HashMap<>();
         columnInfos.forEach(info -> cmap.put(info.column, info));
         for (Column c : Column.values()) {
@@ -364,14 +335,14 @@ public class MysqlSequenceGenerator {
         }
         this.columnInfoMap = cmap;
 
-        Function<ColumnInfo, String> getValue = i -> i.value;
+        // Prepare SQL templates
         tableName = ofNullable(tableName).orElse(DEFAULT_TABLE_NAME);
-        String seqNameColumn = ofNullable(cmap.get(Column.Name)).map(getValue).orElse(DEFAULT_SEQ_NAME_COLUMN);
-        String seqCodeColumn = ofNullable(cmap.get(Column.Code)).map(getValue).orElse(DEFAULT_SEQ_CODE_COLUMN);
-        String seqValueColumn = ofNullable(cmap.get(Column.Value)).map(getValue).orElse(DEFAULT_SEQ_VALUE_COLUMN);
-        String seqMinColumn = ofNullable(cmap.get(Column.Min)).map(getValue).orElse(DEFAULT_SEQ_MIN_COLUMN);
-        String seqMaxColumn = ofNullable(cmap.get(Column.Max)).map(getValue).orElse(DEFAULT_SEQ_MAX_COLUMN);
-        String seqStepColumn = ofNullable(cmap.get(Column.Step)).map(getValue).orElse(DEFAULT_SEQ_STEP_COLUMN);
+        String seqNameColumn = cmap.get(Column.Name).value;
+        String seqCodeColumn = cmap.get(Column.Code).value;
+        String seqValueColumn = cmap.get(Column.Value).value;
+        String seqMinColumn = cmap.get(Column.Min).value;
+        String seqMaxColumn = cmap.get(Column.Max).value;
+        String seqStepColumn = cmap.get(Column.Step).value;
 
         this.connectionSupplier = connectionSupplier;
         this.connectionCloser = connectionCloser;
@@ -449,7 +420,7 @@ public class MysqlSequenceGenerator {
     //////////////////////////////////////////////////////////////
 
     private String getColumnName(Column c) {
-        return columnInfoMap.containsKey(c)? columnInfoMap.get(c).value: null;
+        return columnInfoMap.containsKey(c) ? columnInfoMap.get(c).value : null;
     }
 
     private ConnectionSupplier dataSource() {
@@ -470,7 +441,7 @@ public class MysqlSequenceGenerator {
             } finally {
                 connectionCloser.close(connection);
             }
-        } catch (SQLException e) {
+        } catch (Exception e) {
             throw new MysqlSequenceException(e);
         }
     }
