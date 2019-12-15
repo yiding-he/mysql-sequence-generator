@@ -1,13 +1,12 @@
 package com.hyd.mysqlsequencegenerator;
 
-import com.hyd.mysqlsequencegenerator.MysqlSequenceGenerator.Column;
-import com.hyd.mysqlsequencegenerator.MysqlSequenceGenerator.ColumnInfo;
 import com.mysql.jdbc.Driver;
-import java.sql.Connection;
-import java.util.*;
-import java.util.concurrent.atomic.AtomicLong;
 import org.apache.commons.dbcp2.BasicDataSource;
 import org.junit.Test;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class MysqlSequenceGeneratorTest {
 
@@ -18,7 +17,7 @@ public class MysqlSequenceGeneratorTest {
     public static final String PASSWORD = "root123";
 
     @Test
-    public void testNextSequence() throws Exception {
+    public void testNextSequence() {
         MysqlSequenceGenerator mysqlSequenceGenerator = createMysqlSequenceGenerator();
         for (int i = 0; i < 10; i++) {
             System.out.println(mysqlSequenceGenerator.nextSequence("seq1"));
@@ -72,19 +71,15 @@ public class MysqlSequenceGeneratorTest {
         basicDataSource.setPassword(PASSWORD);
 
         // 构造 MysqlSequenceGenerator 对象
-        MysqlSequenceGenerator mysqlSequenceGenerator =
-            new MysqlSequenceGenerator(
-                basicDataSource::getConnection, Connection::close,
-                null, false,
-                Collections.singletonList(
-                    ColumnInfo.undefined(Column.Min)
-                )
-            );
+        MysqlSequenceGenerator generator =
+            new MysqlSequenceGenerator(basicDataSource);
 
         // 侦听序列更新事件
-        mysqlSequenceGenerator.setOnSequenceUpdate((min, max) ->
-            System.out.println(Thread.currentThread().getName() + " Sequence section updated: " + min + " ~ " + max));
+        generator.setOnSequenceUpdate((min, max) -> {
+            String threadName = Thread.currentThread().getName();
+            System.out.println(threadName + " Sequence segment updated: " + min + " ~ " + max);
+        });
 
-        return mysqlSequenceGenerator;
+        return generator;
     }
 }

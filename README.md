@@ -17,25 +17,29 @@ INSERT into t_sequence (name, code, max) values ('seq3', '888', 99999999);
 
 基于 MySQL 的 `last_insert_id()` 函数而写的序列生成工具。
 
-效率很高，没有数据库事务。使用方法详见单元测试。
+效率很高，没有数据库事务。
 
 **整个项目只有一个类，且无任何依赖关系，可以直接拷贝到任何项目中使用。**
 
-### 使用方法
+### 一、使用方法
 
 1. 创建 `MysqlSequenceGenerator` 对象 `MysqlSequenceGenerator generator = new MysqlSequenceGenerator(dataSource)`
 1. 获得一个 long 类型的序列：`long id = generator.nextLong("seq1")`
 1. 获得一个带年月日和编号的字符串序列：`String id = generator.nextSequence("seq1")` 
 
+使用的示例详见单元测试。
+
 #### 字符串序列的格式
 
-字符串序列的格式为 `yyyyMMdd[code][sequence]`，其中 `[code]` 为 code 字段的值，`[sequence]` 的长度与 max 字段的值长度相同。例如某个序列，code 字段值为 `888`，max 字段值为 `999999`，那么生成的字符串序列可能为 `"20191231888000001"`。
+字符串序列的格式为 `yyyyMMdd[code][sequence]`，其中 `[code]` 为 code 字段的值，`[sequence]` 的长度与 max 
+字段的值长度相同。例如某个序列，code 字段值为 `888`，max 字段值为 `999999`，那么生成的字符串序列可能为 `"20191231888000001"`。
 
-### 兼容 Spring 数据库事务
+### 二、兼容 Spring 数据库事务
 
-如果要在 Spring Boot 项目中使用并兼容 Spring 事务，请参考 `com.hyd.mysqlsequencegenerator.MysqlSequenceGeneratorApplication` 源码示例。
+如果要在 Spring Boot 项目中使用并兼容 Spring 事务，请参考 
+`com.hyd.mysqlsequencegenerator.MysqlSequenceGeneratorApplication` 源码示例。
 
-### 性能测试
+### 三、性能测试
 
 - 10 线程，序列步长  1000，生成 1,000,000 个 ID，耗时 34530 ms
 - 10 线程，序列步长 10000，生成 1,000,000 个 ID，耗时  3278 ms

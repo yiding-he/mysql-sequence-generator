@@ -1,5 +1,6 @@
 package com.hyd.mysqlsequencegenerator;
 
+import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -19,6 +20,9 @@ import java.util.function.BiConsumer;
 
 import static java.util.Optional.ofNullable;
 
+/**
+ * https://github.com/yiding-he/mysql-sequence-generator
+ */
 public class MysqlSequenceGenerator {
 
     public static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
@@ -256,7 +260,7 @@ public class MysqlSequenceGenerator {
 
     public static class Config {
 
-        private String tableName;
+        private String tableName = DEFAULT_TABLE_NAME;
 
         private boolean asyncFetch;
 
@@ -290,11 +294,28 @@ public class MysqlSequenceGenerator {
     /**
      * Constructor.
      *
-     * @param connectionSupplier how to get a JDBC Connection object before database operation
-     * @param config             configurations
+     * @param dataSource DataSource object
      */
-    public MysqlSequenceGenerator(ConnectionSupplier connectionSupplier, Config config
-    ) {
+    public MysqlSequenceGenerator(DataSource dataSource) {
+        this(dataSource::getConnection, Connection::close, new Config());
+    }
+
+    /**
+     * Constructor.
+     *
+     * @param connectionSupplier how to get a JDBC Connection object before database operation
+     */
+    public MysqlSequenceGenerator(ConnectionSupplier connectionSupplier) {
+        this(connectionSupplier, Connection::close, new Config());
+    }
+
+    /**
+     * Constructor.
+     *
+     * @param connectionSupplier how to get a JDBC Connection object before database operation
+     * @param config             customizations
+     */
+    public MysqlSequenceGenerator(ConnectionSupplier connectionSupplier, Config config) {
         this(connectionSupplier, Connection::close, config);
     }
 
@@ -303,7 +324,7 @@ public class MysqlSequenceGenerator {
      *
      * @param connectionSupplier how to get a JDBC Connection object before database operation
      * @param connectionCloser   how to deal with Connection object after database operation
-     * @param config             configurations
+     * @param config             customizations
      */
     public MysqlSequenceGenerator(
         ConnectionSupplier connectionSupplier, ConnectionCloser connectionCloser, Config config
@@ -318,7 +339,7 @@ public class MysqlSequenceGenerator {
      * @param connectionCloser   how to deal with Connection object after database operation
      * @param tableName          (nullable) customized sequence table name
      * @param asyncFetch         whether to fetch new segment asynchronously
-     * @param columnInfos        columns configuration
+     * @param columnInfos        column customizations
      */
     public MysqlSequenceGenerator(
         ConnectionSupplier connectionSupplier, ConnectionCloser connectionCloser,
