@@ -40,7 +40,16 @@ INSERT into t_sequence (name, code, max) values ('seq3', '888', 99999999);
 如果要在 Spring Boot 项目中使用并兼容 Spring 事务，请参考 
 `com.hyd.mysqlsequencegenerator.MysqlSequenceGeneratorApplication` 源码示例。
 
-### 三、性能测试
+### 三、原理
+
+1. MySQL 支持在 update 语句中使用 `last_insert_id(xxx)` 来临时保存最近生成的 ID 到会话中，接下来可以在同一会话中用
+ `select last_insert_id()` 来获取刚生成的 ID。
+1. `MysqlSequenceGenerator` 利用 `AtomicLong` 的 `updateAndGet()` 方法来完成计数器更新和数据库操作。
+1. `Counter` 是实现并发序列的核心类，它包含一个用于保存自增值的 `AtomicLong` 对象和一个 `Threshold` 
+阈值对象，后者表示前者自增到什么值时需要从数据库重新取一个段。取到后，根据取到的最大值将 Threshold 的阈值推高。
+1. 当多个线程同时从数据库重新取段时，会分别将 Threshold 的阈值推高数次。
+
+### 四、性能测试
 
 - 10 线程，序列步长  1000，生成 1,000,000 个 ID，耗时 34530 ms
 - 10 线程，序列步长 10000，生成 1,000,000 个 ID，耗时  3278 ms
