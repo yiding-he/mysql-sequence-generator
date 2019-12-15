@@ -21,13 +21,23 @@ INSERT into t_sequence (name, code, max) values ('seq3', '888', 99999999);
 
 **整个项目只有一个类，且无任何依赖关系，可以直接拷贝到任何项目中使用。**
 
+### 使用方法
 
+1. 创建 `MysqlSequenceGenerator` 对象 `MysqlSequenceGenerator generator = new MysqlSequenceGenerator(dataSource)`
+1. 获得一个 long 类型的序列：`long id = generator.nextLong("seq1")`
+1. 获得一个带年月日和编号的字符串序列：`String id = generator.nextSequence("seq1")` 
+
+#### 字符串序列的格式
+
+字符串序列的格式为 `yyyyMMdd[code][sequence]`，其中 `[code]` 为 code 字段的值，`[sequence]` 的长度与 max 字段的值长度相同。例如某个序列，code 字段值为 `888`，max 字段值为 `999999`，那么生成的字符串序列可能为 `"20191231888000001"`。
+
+### 兼容 Spring 数据库事务
 
 如果要在 Spring Boot 项目中使用并兼容 Spring 事务，请参考 `com.hyd.mysqlsequencegenerator.MysqlSequenceGeneratorApplication` 源码示例。
 
-性能测试：
+### 性能测试
 
 - 10 线程，序列步长  1000，生成 1,000,000 个 ID，耗时 34530 ms
 - 10 线程，序列步长 10000，生成 1,000,000 个 ID，耗时  3278 ms
 
-数据库运行在普通机械硬盘上，瓶颈都在磁盘 I/O。
+数据库运行在**普通机械硬盘**上，瓶颈都在磁盘 I/O。
