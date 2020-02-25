@@ -382,7 +382,7 @@ public class MysqlSequenceGenerator {
 
         this.queryCodeTemplate = SEQ_CODE_QUERY
             .replace("{{CODE_COLUMN}}", getColumnName(Column.Code) == null ? "" : CODE_COLUMN)
-            .replace("#code#", seqCodeColumn)
+            .replace("#code#", getColumnName(Column.Code) == null ? "" : seqCodeColumn)
             .replace("#max#", seqMaxColumn)
             .replace("#table#", tableName)
             .replace("#seqname#", seqNameColumn);
