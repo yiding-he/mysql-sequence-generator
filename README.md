@@ -1,7 +1,13 @@
 # mysql-sequence-generator
 A mysql-based lock-free id generator using last_insert_id() function.
 
-标准的序列表，但也可兼容字段稍微不同的表，具体见后面说明。
+基于 MySQL 的 `last_insert_id()` 函数而写的序列生成工具。
+
+效率很高，没有数据库事务。
+
+**整个项目只有一个类，且无任何依赖关系，可以直接拷贝到任何项目中使用。**
+
+下面是标准的序列表，但也可兼容字段稍微不同的表，具体见后面说明。
 
 ```sql
 create table t_sequence(
@@ -18,11 +24,6 @@ INSERT into t_sequence (name, code, max) values ('seq2', '887', 99999999);
 INSERT into t_sequence (name, code, max) values ('seq3', '888', 99999999);
 ```
 
-基于 MySQL 的 `last_insert_id()` 函数而写的序列生成工具。
-
-效率很高，没有数据库事务。
-
-**整个项目只有一个类，且无任何依赖关系，可以直接拷贝到任何项目中使用。**
 
 ### 一、创建方法（表的兼容性）
 
@@ -37,6 +38,7 @@ MysqlSequenceGenerator 不要求表一定要是标准的样子，但要求表中
 每个字段可以自定义名字，而且标准表中的 `code` 字段是可选的。下面是一个创建 `MysqlSequenceGenerator` 对象的例子：
 
 ```java
+// 使用非标准的序列表来创建 MysqlSequenceGenerator
 MysqlSequenceGenerator idGenerator = new MysqlSequenceGenerator(
     dataSource::getConnection, // 获得 Connection 的方式
     Connection::close,         // 关闭 Connection 的方式
@@ -48,6 +50,9 @@ MysqlSequenceGenerator idGenerator = new MysqlSequenceGenerator(
         ColumnInfo.undefined(Column.Code)                // 表中没有 code 字段
     )
 );
+
+// 使用标准的序列表来创建 MysqlSequenceGenerator
+MysqlSequenceGenerator idGenerator = new MysqlSequenceGenerator(dataSource);
 ```
 
 ### 二、使用方法
@@ -77,7 +82,7 @@ MysqlSequenceGenerator idGenerator = new MysqlSequenceGenerator(
 阈值对象，后者表示前者自增到什么值时需要从数据库重新取一个段。取到后，根据取到的最大值将 Threshold 的阈值推高。
 1. 当多个线程同时从数据库重新取段时，会分别将 Threshold 的阈值推高数次。
 
-### 四、性能测试
+### 五、性能测试
 
 - 10 线程，序列步长  1000，生成 1,000,000 个 ID，耗时 34530 ms
 - 10 线程，序列步长 10000，生成 1,000,000 个 ID，耗时  3278 ms
