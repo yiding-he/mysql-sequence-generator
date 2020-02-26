@@ -64,16 +64,21 @@ public class MysqlSequenceGenerator {
 
     static class SeqInfo {
 
-        private String code;
+        private final String code;
 
-        private long max;
+        private final long max;
+
+        public SeqInfo(String code, long max) {
+            this.code = code;
+            this.max = max;
+        }
     }
 
     static class Threshold {
 
-        long max;           // max value for current section
+        final long max;           // max value for current section
 
-        long threshold;     // threshold value for when to fetch new section
+        final long threshold;     // threshold value for when to fetch new section
 
         Threshold(long max, long threshold) {
             this.max = max;
@@ -93,8 +98,12 @@ public class MysqlSequenceGenerator {
      * Customizable columns
      */
     public enum Column {
-        Name("name"), Code("code"), Value("value"),
-        Min("min"), Max("max"), Step("step");
+        Name("name"),
+        Code("code"),
+        Value("value"),
+        Min("min"),
+        Max("max"),
+        Step("step");
 
         private String defaultColumnName;
 
@@ -112,32 +121,25 @@ public class MysqlSequenceGenerator {
      */
     public static class ColumnInfo {
 
-        private Column column;
+        private final Column column;
 
-        private String value = null;
+        private final String value;
 
-        // Specify if a column is missing in actual sequence table
-        // For now only `min` and `code` are supported
+        private ColumnInfo(Column column, String value) {
+            this.column = column;
+            this.value = value;
+        }
+
         public static ColumnInfo undefined(Column c) {
-            ColumnInfo ci = new ColumnInfo();
-            ci.column = c;
-            ci.value = null;
-            return ci;
+            return new ColumnInfo(c, null);
         }
 
         public static ColumnInfo defaultName(Column c) {
-            ColumnInfo ci = new ColumnInfo();
-            ci.column = c;
-            ci.value = c.getDefaultColumnName();
-            return ci;
+            return new ColumnInfo(c, c.getDefaultColumnName());
         }
 
-        // Specify if you have a different column name
         public static ColumnInfo customName(Column c, String name) {
-            ColumnInfo ci = new ColumnInfo();
-            ci.column = c;
-            ci.value = name;
-            return ci;
+            return new ColumnInfo(c, name);
         }
     }
 
@@ -146,19 +148,27 @@ public class MysqlSequenceGenerator {
         public MysqlSequenceException(Throwable cause) {
             super(cause);
         }
+
+        public MysqlSequenceException(String message) {
+            super(message);
+        }
     }
 
     //////////////////////////////////////////////////////////////
 
+    /**
+     * 每个序列对应一个 Counter 对象
+     * 注意：对会被多线程访问的成员，要么是 final 的，要么就必须是 volatile 的。
+     */
     class Counter {
 
-        String sequenceName;
+        final String sequenceName;                  // 序列名称
 
-        Threshold threshold;
+        final AtomicLong value = new AtomicLong();  // 序列的当前值
 
-        AtomicLong value = new AtomicLong();
+        volatile Threshold threshold;    // 当前队列的阈值，用来判断是否该从数据库取下一个序列段
 
-        volatile Future<Long> future;
+        volatile Future<Long> future;    // 如果是异步取下一序列段，则要用到 Future
 
         public Counter(String sequenceName, long min, long max) {
             this.sequenceName = sequenceName;
@@ -168,18 +178,28 @@ public class MysqlSequenceGenerator {
 
         public long next() throws MysqlSequenceException {
             try {
+                // updateAndGet() 方法能够保证操作的原子性
                 return value.updateAndGet(seq -> asyncFetch ? nextAsync(seq) : nextSync(seq));
             } catch (Exception e) {
                 throw new MysqlSequenceException(e);
             }
         }
 
+        /**
+         * 取下一个序号，如果需要的话，以异步方式从数据库取新的序号段
+         *
+         * @param seq 当前序号
+         */
         private long nextAsync(long seq) {
+
+            // 判断是否该取序号段了，以及是否正在取序号段
             if (threshold.needFetch(seq) && future == null) {
                 synchronized (this) {
-                    if (future == null) {
+                    // 进入这里但发现不满足，意味着：1）threshold 已经更新，或2）有其他线程已经开始取了
+                    if (threshold.needFetch(seq) && future == null) {
                         future = asyncFetcher.submit(() -> {
                             long[] minMax = updateSequence();
+                            // 除以 2 的意思是当序号段用掉一半时，触发异步取下一个序号段
                             long t = (minMax[1] - minMax[0]) / 2 + minMax[0];
                             threshold = new Threshold(minMax[1], t);
                             return minMax[0];
@@ -188,6 +208,10 @@ public class MysqlSequenceGenerator {
                 }
             }
 
+            // 如果当前序号段仍然可用，则取当前序号段下一个值，
+            // 否则从 future.get() 取值。注意：
+            // 1、future.get() 会阻塞；
+            // 2、future.get() 成功完成时，threshold 已经被更新
             if (threshold.runOut(seq)) {
                 synchronized (this) {
                     if (threshold.runOut(seq)) {
@@ -207,6 +231,11 @@ public class MysqlSequenceGenerator {
             }
         }
 
+        /**
+         * 取下一个序号，如果需要的话，以同步方式从数据库取新的序号段
+         *
+         * @param seq 当前序号
+         */
         private long nextSync(long seq) {
             if (threshold.needFetch(seq)) {
                 synchronized (this) {
@@ -223,6 +252,9 @@ public class MysqlSequenceGenerator {
             }
         }
 
+        /**
+         * 从数据库取下一个序列段，并返回该段的最小值和最大值
+         */
         private long[] updateSequence() {
             return withConnection(connection -> {
                 executeUpdate(connection, sequenceName);
@@ -233,28 +265,29 @@ public class MysqlSequenceGenerator {
 
     ////////////////////////////////////////////////////////////
 
-    private ConnectionSupplier connectionSupplier;
+    private final ConnectionSupplier connectionSupplier;
 
-    private ConnectionCloser connectionCloser;
+    private final ConnectionCloser connectionCloser;
 
-    private String updateTemplate;
+    private final String updateTemplate;
 
-    private String querySegmentTemplate;
+    private final String querySegmentTemplate;
 
-    private String queryCodeTemplate;
+    private final String queryCodeTemplate;
 
-    private Map<String, Counter> counters = new ConcurrentHashMap<>();
+    private final Map<String, Counter> counters = new ConcurrentHashMap<>();
+
+    private final Map<String, SeqInfo> seqInfoMap = new ConcurrentHashMap<>();
+
+    private final Map<Column, ColumnInfo> columnInfoMap;  // set by user
+
+    private final boolean asyncFetch;
+
+    private final ExecutorService asyncFetcher = new ThreadPoolExecutor(
+        1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>()
+    );
 
     private BiConsumer<Long, Long> onSequenceUpdate;
-
-    /**
-     * Whether or not fetch next sequence section with a daemon thread
-     */
-    private boolean asyncFetch;
-
-    private Map<Column, ColumnInfo> columnInfoMap;
-
-    private ExecutorService asyncFetcher = Executors.newSingleThreadExecutor();
 
     //////////////////////////////////////////////////////////////
 
@@ -298,6 +331,15 @@ public class MysqlSequenceGenerator {
      */
     public MysqlSequenceGenerator(DataSource dataSource) {
         this(dataSource::getConnection, Connection::close, new Config());
+    }
+
+    /**
+     * Constructor.
+     *
+     * @param dataSource DataSource object
+     */
+    public MysqlSequenceGenerator(DataSource dataSource, Config config) {
+        this(dataSource::getConnection, Connection::close, config);
     }
 
     /**
@@ -475,6 +517,8 @@ public class MysqlSequenceGenerator {
     }
 
     private long[] querySegment(Connection connection) throws SQLException {
+        // System.out.println("开始取新的序列段...");
+        // __sleep__(1000);
         try (
             PreparedStatement ps = connection.prepareStatement(this.querySegmentTemplate);
             ResultSet rs = ps.executeQuery()
@@ -498,18 +542,26 @@ public class MysqlSequenceGenerator {
     }
 
     private SeqInfo querySeqInfo(Connection connection, String seqName, boolean hasCode) throws SQLException {
-        try (
-            PreparedStatement ps = createPs(connection, this.queryCodeTemplate, seqName);
-            ResultSet rs = ps.executeQuery()
-        ) {
-            if (rs.next()) {
-                SeqInfo seqInfo = new SeqInfo();
-                seqInfo.max = rs.getLong(getColumnName(Column.Max));
-                seqInfo.code = hasCode ? rs.getString(getColumnName(Column.Code)) : null;
-                return seqInfo;
+        return seqInfoMap.computeIfAbsent(seqName, __seqName__ -> {
+            // __sleep__(1000);
+            try {
+                try (
+                    PreparedStatement ps = createPs(connection, this.queryCodeTemplate, __seqName__);
+                    ResultSet rs = ps.executeQuery()
+                ) {
+                    if (rs.next()) {
+                        return new SeqInfo(
+                            hasCode ? rs.getString(getColumnName(Column.Code)) : null,
+                            rs.getLong(getColumnName(Column.Max))
+                        );
+                    } else {
+                        throw new MysqlSequenceException("query result is empty");
+                    }
+                }
+            } catch (SQLException e) {
+                throw new MysqlSequenceException(e);
             }
-        }
-        throw new IllegalStateException("query result is empty");
+        });
     }
 
     private PreparedStatement createPs(Connection connection, String sql, Object... args) throws SQLException {
@@ -518,5 +570,14 @@ public class MysqlSequenceGenerator {
             ps.setObject(i + 1, args[i]);
         }
         return ps;
+    }
+
+    // 调试用，制造阻塞
+    private static final void __sleep__(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            // ignore this error
+        }
     }
 }
