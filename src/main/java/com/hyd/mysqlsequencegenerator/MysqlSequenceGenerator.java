@@ -33,7 +33,8 @@ public class MysqlSequenceGenerator {
         ") where #seqname# = ?";
 
     public static final String SEQ_SEGMENT_QUERY = "SELECT " +
-        "last_insert_id(), last_insert_id() + #step# FROM #table#";
+        "last_insert_id(), last_insert_id() + #step# FROM #table# " +
+        "where #seqname# = ?";
 
     private static final String CODE_COLUMN = "#code# code,";
 
@@ -258,7 +259,7 @@ public class MysqlSequenceGenerator {
         private long[] updateSequence() {
             return withConnection(connection -> {
                 executeUpdate(connection, sequenceName);
-                return querySegment(connection);
+                return querySegment(connection, sequenceName);
             });
         }
     }
@@ -420,6 +421,7 @@ public class MysqlSequenceGenerator {
 
         this.querySegmentTemplate = SEQ_SEGMENT_QUERY
             .replace("#table#", tableName)
+            .replace("#seqname#", seqNameColumn)
             .replace("#step#", seqStepColumn);
 
         this.queryCodeTemplate = SEQ_CODE_QUERY
@@ -516,26 +518,26 @@ public class MysqlSequenceGenerator {
         }
     }
 
-    private long[] querySegment(Connection connection) throws SQLException {
+    private long[] querySegment(Connection connection, String sequenceName) throws SQLException {
         // System.out.println("开始取新的序列段...");
         // __sleep__(1000);
-        try (
-            PreparedStatement ps = connection.prepareStatement(this.querySegmentTemplate);
-            ResultSet rs = ps.executeQuery()
-        ) {
-            if (rs.next()) {
-                long sectionMin = rs.getBigDecimal(1).longValue();
-                long sectionMax = rs.getBigDecimal(2).longValue();
+        try (PreparedStatement ps = connection.prepareStatement(this.querySegmentTemplate)) {
+            ps.setString(1, sequenceName);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    long sectionMin = rs.getBigDecimal(1).longValue();
+                    long sectionMax = rs.getBigDecimal(2).longValue();
 
-                if (onSequenceUpdate != null) {
-                    try {
-                        onSequenceUpdate.accept(sectionMin, sectionMax);
-                    } catch (Throwable e) {
-                        // ignore event handler error
+                    if (onSequenceUpdate != null) {
+                        try {
+                            onSequenceUpdate.accept(sectionMin, sectionMax);
+                        } catch (Throwable e) {
+                            // ignore event handler error
+                        }
                     }
-                }
 
-                return new long[]{sectionMin, sectionMax};
+                    return new long[]{sectionMin, sectionMax};
+                }
             }
         }
         throw new IllegalStateException("query result is empty");
@@ -572,12 +574,23 @@ public class MysqlSequenceGenerator {
         return ps;
     }
 
-    // 调试用，制造阻塞
+    ////////////////////////////////////////////////////////////// debugging
+
     private static final void __sleep__(long millis) {
         try {
             Thread.sleep(millis);
         } catch (InterruptedException e) {
             // ignore this error
+        }
+    }
+
+    private static final void __output__(String message) {
+        System.out.println(message + " [" + Thread.currentThread().getName() + "]");
+    }
+
+    private static final void __assert__(boolean b) {
+        if (!b) {
+            throw new IllegalStateException("Assert failed");
         }
     }
 }
