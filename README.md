@@ -1,6 +1,8 @@
 # mysql-sequence-generator
 A mysql-based lock-free id generator using last_insert_id() function.
 
+标准的序列表，但也可兼容字段稍微不同的表，具体见后面说明。
+
 ```sql
 create table t_sequence(
   name  varchar(100) primary key             comment '序列名称',
@@ -22,11 +24,37 @@ INSERT into t_sequence (name, code, max) values ('seq3', '888', 99999999);
 
 **整个项目只有一个类，且无任何依赖关系，可以直接拷贝到任何项目中使用。**
 
-### 一、使用方法
+### 一、创建方法（表的兼容性）
 
-1. 创建 `MysqlSequenceGenerator` 对象 `MysqlSequenceGenerator generator = new MysqlSequenceGenerator(dataSource)`
+MysqlSequenceGenerator 不要求表一定要是标准的样子，但要求表中至少要有下面五个字段：
+
+- 序列名称
+- 当前值
+- 最小值
+- 最大值
+- 步长
+
+每个字段可以自定义名字，而且标准表中的 `code` 字段是可选的。下面是一个创建 `MysqlSequenceGenerator` 对象的例子：
+
+```java
+MysqlSequenceGenerator idGenerator = new MysqlSequenceGenerator(
+    dataSource::getConnection, // 获得 Connection 的方式
+    Connection::close,         // 关闭 Connection 的方式
+    "t_sequence",              // 实际的序列表名称
+    false,                     // 是否异步获取新的序列号。提前异步获取新的序列号可提升性能
+    Arrays.asList(             // 自定义字段名称
+        ColumnInfo.customName(Column.Min, "min_value"),  // 最小值字段的实际字段名为 min_value
+        ColumnInfo.customName(Column.Max, "max_value"),  // 最大值字段的实际字段名为 max_value
+        ColumnInfo.undefined(Column.Code)                // 表中没有 code 字段
+    )
+);
+```
+
+### 二、使用方法
+
 1. 获得一个 long 类型的序列：`long id = generator.nextLong("seq1")`
 1. 获得一个带年月日和编号的字符串序列：`String id = generator.nextSequence("seq1")` 
+1. 获得一个带年月日和自定义编号的字符串序列：`String id = generator.nextSequence("seq1", "001")`
 
 使用的示例详见单元测试。
 
@@ -35,12 +63,12 @@ INSERT into t_sequence (name, code, max) values ('seq3', '888', 99999999);
 字符串序列的格式为 `yyyyMMdd[code][sequence]`，其中 `[code]` 为 code 字段的值，`[sequence]` 的长度与 max 
 字段的值长度相同。例如某个序列，code 字段值为 `888`，max 字段值为 `999999`，那么生成的字符串序列可能为 `"20191231888000001"`。
 
-### 二、兼容 Spring 数据库事务
+### 三、兼容 Spring 数据库事务
 
 如果要在 Spring Boot 项目中使用并兼容 Spring 事务，请参考 
 `com.hyd.mysqlsequencegenerator.MysqlSequenceGeneratorApplication` 源码示例。
 
-### 三、原理
+### 四、原理
 
 1. MySQL 支持在 update 语句中使用 `last_insert_id(xxx)` 来临时保存最近生成的 ID 到会话中，接下来可以在同一会话中用
  `select last_insert_id()` 来获取刚生成的 ID。
