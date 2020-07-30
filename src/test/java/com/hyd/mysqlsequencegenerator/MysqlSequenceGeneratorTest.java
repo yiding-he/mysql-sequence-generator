@@ -1,16 +1,15 @@
 package com.hyd.mysqlsequencegenerator;
 
 import com.mysql.jdbc.Driver;
-import org.apache.commons.dbcp2.BasicDataSource;
-import org.junit.Test;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+import org.apache.commons.dbcp2.BasicDataSource;
+import org.junit.Test;
 
 public class MysqlSequenceGeneratorTest {
 
-    public static final String URL = "jdbc:mysql://localhost:3306/demo?useSSL=false";
+    public static final String URL = "jdbc:mysql://localhost:3306/demo?useSSL=false&serverTimezone=UTC";
 
     public static final String USERNAME = "root";
 

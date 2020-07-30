@@ -20,6 +20,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
+import java.util.function.Supplier;
 import javax.sql.DataSource;
 
 /**
@@ -45,6 +46,8 @@ public class MysqlSequenceGenerator {
 
     public static final String DEFAULT_TABLE_NAME = "t_sequence";
 
+    public static final int DEFAULT_INFO_CACHE_EXPIRE_MILLIS = 60000;
+
     ////////////////////////////////////////////////////////////
 
     @FunctionalInterface
@@ -63,6 +66,58 @@ public class MysqlSequenceGenerator {
     interface ConnectionCloser {
 
         void close(Connection connection) throws SQLException;
+    }
+
+    static class TimedCache<T> {
+
+        class CacheItem<T> {
+
+            private final long expiry;
+
+            private final T value;
+
+            public CacheItem(T value) {
+                this.expiry = System.currentTimeMillis() + maxAgeMillis;
+                this.value = value;
+            }
+
+            public boolean expired() {
+                return System.currentTimeMillis() > expiry;
+            }
+        }
+
+        private final int maxAgeMillis;
+
+        private final ConcurrentHashMap<String, CacheItem<T>> cache = new ConcurrentHashMap<>();
+
+        public TimedCache() {
+            this(DEFAULT_INFO_CACHE_EXPIRE_MILLIS);
+        }
+
+        public TimedCache(int maxAgeMillis) {
+            this.maxAgeMillis = maxAgeMillis;
+        }
+
+        public T get(String key, Supplier<T> supplier) {
+            CacheItem<T> item = cache.get(key);
+            if (item == null || item.expired()) {
+                synchronized (cache) {
+                    item = cache.get(key);
+                    if (item == null || item.expired()) {
+                        T value = supplier.get();
+                        if (value != null) {
+                            item = new CacheItem<>(value);
+                            cache.put(key, item);
+                        }
+                    }
+                }
+            }
+            return item == null ? null : item.value;
+        }
+
+        public void clear() {
+            cache.clear();
+        }
     }
 
     static class SeqInfo {
@@ -108,7 +163,7 @@ public class MysqlSequenceGenerator {
         Max("max"),
         Step("step");
 
-        private String defaultColumnName;
+        private final String defaultColumnName;
 
         Column(String defaultColumnName) {
             this.defaultColumnName = defaultColumnName;
@@ -278,6 +333,8 @@ public class MysqlSequenceGenerator {
 
     private final String queryCodeTemplate;
 
+    private final TimedCache<SeqInfo> seqInfoCache;
+
     private final Map<String, Counter> counters = new ConcurrentHashMap<>();
 
     private final Map<String, SeqInfo> seqInfoMap = new ConcurrentHashMap<>();
@@ -298,32 +355,46 @@ public class MysqlSequenceGenerator {
 
         private String tableName = DEFAULT_TABLE_NAME;
 
+        private int infoCacheExpireMillis = DEFAULT_INFO_CACHE_EXPIRE_MILLIS;
+
         private boolean asyncFetch;
 
         private List<ColumnInfo> columnInfos = new ArrayList<>();
+
+        public int getInfoCacheExpireMillis() {
+            return infoCacheExpireMillis;
+        }
+
+        public Config setInfoCacheExpireMillis(int infoCacheExpireMillis) {
+            this.infoCacheExpireMillis = infoCacheExpireMillis;
+            return this;
+        }
 
         public String getTableName() {
             return tableName;
         }
 
-        public void setTableName(String tableName) {
+        public Config setTableName(String tableName) {
             this.tableName = tableName;
+            return this;
         }
 
         public boolean isAsyncFetch() {
             return asyncFetch;
         }
 
-        public void setAsyncFetch(boolean asyncFetch) {
+        public Config setAsyncFetch(boolean asyncFetch) {
             this.asyncFetch = asyncFetch;
+            return this;
         }
 
         public List<ColumnInfo> getColumnInfos() {
             return columnInfos;
         }
 
-        public void setColumnInfos(List<ColumnInfo> columnInfos) {
+        public Config setColumnInfos(List<ColumnInfo> columnInfos) {
             this.columnInfos = columnInfos;
+            return this;
         }
     }
 
@@ -374,22 +445,11 @@ public class MysqlSequenceGenerator {
     public MysqlSequenceGenerator(
         ConnectionSupplier connectionSupplier, ConnectionCloser connectionCloser, Config config
     ) {
-        this(connectionSupplier, connectionCloser, config.tableName, config.asyncFetch, config.columnInfos);
-    }
 
-    /**
-     * Constructor.
-     *
-     * @param connectionSupplier how to get a JDBC Connection object before database operation
-     * @param connectionCloser   how to deal with Connection object after database operation
-     * @param tableName          (nullable) customized sequence table name
-     * @param asyncFetch         whether to fetch new segment asynchronously
-     * @param columnInfos        column customizations
-     */
-    public MysqlSequenceGenerator(
-        ConnectionSupplier connectionSupplier, ConnectionCloser connectionCloser,
-        String tableName, boolean asyncFetch, List<ColumnInfo> columnInfos
-    ) {
+        List<ColumnInfo> columnInfos = config.columnInfos;
+        String tableName = config.tableName;
+        boolean asyncFetch = config.asyncFetch;
+        int infoCacheExpireMillis = config.infoCacheExpireMillis;
 
         // Create and fill this.columnInfoMap
         Map<Column, ColumnInfo> cmap = new HashMap<>();
@@ -434,6 +494,28 @@ public class MysqlSequenceGenerator {
             .replace("#seqname#", seqNameColumn);
 
         this.asyncFetch = asyncFetch;
+        this.seqInfoCache = new TimedCache<>(infoCacheExpireMillis);
+    }
+
+    /**
+     * Constructor.
+     *
+     * @param connectionSupplier how to get a JDBC Connection object before database operation
+     * @param connectionCloser   how to deal with Connection object after database operation
+     * @param tableName          (nullable) customized sequence table name
+     * @param asyncFetch         whether to fetch new segment asynchronously
+     * @param columnInfos        column customizations
+     */
+    public MysqlSequenceGenerator(
+        ConnectionSupplier connectionSupplier, ConnectionCloser connectionCloser,
+        String tableName, boolean asyncFetch, List<ColumnInfo> columnInfos
+    ) {
+        this(connectionSupplier, connectionCloser,
+            new Config()
+                .setTableName(tableName)
+                .setAsyncFetch(asyncFetch)
+                .setColumnInfos(columnInfos)
+        );
     }
 
     public String getUpdateTemplate() {
@@ -478,7 +560,9 @@ public class MysqlSequenceGenerator {
 
         String today = DATE_FORMATTER.format(LocalDate.now());
         boolean hasCode = code == null;
-        SeqInfo seqInfo = withConnection(conn -> querySeqInfo(conn, sequenceName, hasCode));
+        SeqInfo seqInfo = seqInfoCache.get(
+            sequenceName, () -> withConnection(conn -> querySeqInfo(conn, sequenceName, hasCode))
+        );
         int length = (int) Math.log10(seqInfo.max) + 1;
 
         return today + (code != null ? code : seqInfo.code) + String.format("%0" + length + "d", nextLong);
@@ -545,7 +629,7 @@ public class MysqlSequenceGenerator {
         throw new IllegalStateException("query result is empty");
     }
 
-    private SeqInfo querySeqInfo(Connection connection, String seqName, boolean hasCode) throws SQLException {
+    private SeqInfo querySeqInfo(Connection connection, String seqName, boolean hasCode) {
         return seqInfoMap.computeIfAbsent(seqName, __seqName__ -> {
             // __sleep__(1000);
             try {
@@ -578,7 +662,7 @@ public class MysqlSequenceGenerator {
 
     ////////////////////////////////////////////////////////////// debugging
 
-    private static final void __sleep__(long millis) {
+    private static void __sleep__(long millis) {
         try {
             Thread.sleep(millis);
         } catch (InterruptedException e) {
@@ -586,11 +670,11 @@ public class MysqlSequenceGenerator {
         }
     }
 
-    private static final void __output__(String message) {
+    private static void __output__(String message) {
         System.out.println(message + " [" + Thread.currentThread().getName() + "]");
     }
 
-    private static final void __assert__(boolean b) {
+    private static void __assert__(boolean b) {
         if (!b) {
             throw new IllegalStateException("Assert failed");
         }
