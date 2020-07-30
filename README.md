@@ -7,6 +7,8 @@ A mysql-based lock-free id generator using last_insert_id() function.
 
 **整个项目只有一个类，且无任何依赖关系，可以直接拷贝到任何项目中使用。**
 
+[源码 MysqlSequenceGenerator.java](https://github.com/yiding-he/mysql-sequence-generator/blob/master/src/main/java/com/hyd/mysqlsequencegenerator/MysqlSequenceGenerator.java)
+
 下面是标准的序列表，但也可兼容字段稍微不同的表，具体见后面说明。
 
 ```sql
