@@ -1,6 +1,7 @@
 package com.hyd.mysqlsequencegenerator;
 
-import javax.sql.DataSource;
+import static java.util.Optional.ofNullable;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -13,12 +14,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
-
-import static java.util.Optional.ofNullable;
+import javax.sql.DataSource;
 
 /**
  * https://github.com/yiding-he/mysql-sequence-generator
@@ -285,7 +287,7 @@ public class MysqlSequenceGenerator {
     private final boolean asyncFetch;
 
     private final ExecutorService asyncFetcher = new ThreadPoolExecutor(
-        1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>()
+        1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>()
     );
 
     private BiConsumer<Long, Long> onSequenceUpdate;
