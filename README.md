@@ -9,6 +9,8 @@ A mysql-based lock-free id generator using last_insert_id() function.
 
 [源码 MysqlSequenceGenerator.java](https://github.com/yiding-he/mysql-sequence-generator/blob/master/src/main/java/com/hyd/mysqlsequencegenerator/MysqlSequenceGenerator.java)
 
+### 标准序列表
+
 下面是标准的序列表，但也可兼容字段稍微不同的表，具体见后面说明。
 
 ```sql
@@ -27,7 +29,7 @@ INSERT into t_sequence (name, code, max) values ('seq3', '888', 99999999);
 ```
 
 
-### 一、创建方法（表的兼容性）
+### 一、构造方法（含兼容性配置）
 
 MysqlSequenceGenerator 不要求表一定要是标准的样子，但要求表中至少要有下面五个字段：
 
