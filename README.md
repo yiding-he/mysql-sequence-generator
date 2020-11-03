@@ -1,5 +1,4 @@
 # mysql-sequence-generator
-A mysql-based lock-free id generator using last_insert_id() function.
 
 基于 MySQL 的 `last_insert_id()` 函数而写的序列生成工具。
 
