@@ -41,21 +41,21 @@ MysqlSequenceGenerator 不要求表一定要是标准的样子，但要求表中
 每个字段可以自定义名字，而且标准表中的 `code` 字段是可选的。下面是一个创建 `MysqlSequenceGenerator` 对象的例子：
 
 ```java
-// 使用非标准的序列表来创建 MysqlSequenceGenerator
+// 1. 使用标准的序列表来创建 MysqlSequenceGenerator
+MysqlSequenceGenerator idGenerator = new MysqlSequenceGenerator(dataSource);
+
+// 2. 使用非标准的序列表来创建 MysqlSequenceGenerator
 MysqlSequenceGenerator idGenerator = new MysqlSequenceGenerator(
     dataSource::getConnection, // 获得 Connection 的方式
     Connection::close,         // 关闭 Connection 的方式
     "t_sequence",              // 实际的序列表名称
     false,                     // 是否异步获取新的序列号。提前异步获取新的序列号可提升性能
-    Arrays.asList(             // 自定义字段名称
+    Arrays.asList(             // 自定义字段名
         ColumnInfo.customName(Column.Min, "min_value"),  // 最小值字段的实际字段名为 min_value
         ColumnInfo.customName(Column.Max, "max_value"),  // 最大值字段的实际字段名为 max_value
         ColumnInfo.undefined(Column.Code)                // 表中没有 code 字段
     )
 );
-
-// 使用标准的序列表来创建 MysqlSequenceGenerator
-MysqlSequenceGenerator idGenerator = new MysqlSequenceGenerator(dataSource);
 ```
 
 ### 二、使用方法
@@ -68,8 +68,12 @@ MysqlSequenceGenerator idGenerator = new MysqlSequenceGenerator(dataSource);
 
 #### 字符串序列的格式
 
-字符串序列的格式为 `yyyyMMdd[code][sequence]`，其中 `[code]` 为 code 字段的值，`[sequence]` 的长度与 max 
-字段的值长度相同。例如某个序列，code 字段值为 `888`，max 字段值为 `999999`，那么生成的字符串序列可能为 `"20191231888000001"`。
+字符串序列的格式为 `yyyyMMdd[code][sequence]`，其中：
+
+- `[code]` 为 code 字段的值（如果有的话）；
+- `[sequence]` 的长度与 max 字段的值长度相同。
+
+例如某个序列，code 字段值为 `888`，max 字段值为 `999999`，那么生成的字符串序列可能为 `"20191231888000001"`。
 
 ### 三、兼容 Spring 数据库事务
 
