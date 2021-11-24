@@ -1,7 +1,6 @@
 package com.hyd.mysqlsequencegenerator;
 
-import static java.util.Optional.ofNullable;
-
+import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -12,16 +11,12 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Future;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
-import javax.sql.DataSource;
+
+import static java.util.Optional.ofNullable;
 
 /**
  * https://github.com/yiding-he/mysql-sequence-generator
@@ -626,7 +621,7 @@ public class MysqlSequenceGenerator {
                 }
             }
         }
-        throw new IllegalStateException("query result is empty");
+        throw new MysqlSequenceException("Sequence name '" + sequenceName + "' not found.");
     }
 
     private SeqInfo querySeqInfo(Connection connection, String seqName, boolean hasCode) {
@@ -643,7 +638,7 @@ public class MysqlSequenceGenerator {
                             rs.getLong(getColumnName(Column.Max))
                         );
                     } else {
-                        throw new MysqlSequenceException("query result is empty");
+                        throw new MysqlSequenceException("Sequence name '" + seqName + "' not found.");
                     }
                 }
             } catch (SQLException e) {
