@@ -1,15 +1,16 @@
 package com.hyd.mysqlsequencegenerator;
 
 import com.mysql.jdbc.Driver;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
 import org.apache.commons.dbcp2.BasicDataSource;
 import org.junit.Test;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
+
 public class MysqlSequenceGeneratorTest {
 
-    public static final String URL = "jdbc:mysql://localhost:3306/demo?useSSL=false&serverTimezone=UTC";
+    public static final String URL = "jdbc:mysql://localhost:3306/test?useSSL=false&serverTimezone=UTC";
 
     public static final String USERNAME = "root";
 
@@ -23,6 +24,16 @@ public class MysqlSequenceGeneratorTest {
             System.out.println(mysqlSequenceGenerator.nextSequence("seq2"));
             System.out.println(mysqlSequenceGenerator.nextSequence("seq3"));
         }
+    }
+
+    @Test
+    public void testOnePerSection() throws Exception {
+        MysqlSequenceGenerator mysqlSequenceGenerator = createMysqlSequenceGenerator();
+        mysqlSequenceGenerator.updateStep("seq1", 1);
+        for (int i = 0; i < 100; i++) {
+            System.out.println(mysqlSequenceGenerator.nextSequence("seq1"));
+        }
+        mysqlSequenceGenerator.updateStep("seq1", 100);
     }
 
     @Test
@@ -76,7 +87,7 @@ public class MysqlSequenceGeneratorTest {
         // 侦听序列更新事件
         generator.setOnSequenceUpdate((min, max) -> {
             String threadName = Thread.currentThread().getName();
-            System.out.println(threadName + " Sequence segment updated: " + min + " ~ " + max);
+            System.out.println("[" + threadName + "] Sequence segment updated: " + min + " ~ " + max);
         });
 
         return generator;

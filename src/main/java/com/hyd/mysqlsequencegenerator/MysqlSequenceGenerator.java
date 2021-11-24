@@ -310,7 +310,7 @@ public class MysqlSequenceGenerator {
          */
         private long[] updateSequence() {
             return withConnection(connection -> {
-                executeUpdate(connection, sequenceName);
+                executeUpdateTemplate(connection, sequenceName);
                 return querySegment(connection, sequenceName);
             });
         }
@@ -321,6 +321,8 @@ public class MysqlSequenceGenerator {
     private final ConnectionSupplier connectionSupplier;
 
     private final ConnectionCloser connectionCloser;
+
+    private final String tableName;
 
     private final String updateTemplate;
 
@@ -490,6 +492,7 @@ public class MysqlSequenceGenerator {
 
         this.asyncFetch = asyncFetch;
         this.seqInfoCache = new TimedCache<>(infoCacheExpireMillis);
+        this.tableName = tableName;
     }
 
     /**
@@ -529,7 +532,7 @@ public class MysqlSequenceGenerator {
         this.onSequenceUpdate = onSequenceUpdate;
     }
 
-    ////////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////// query functions
 
     /**
      * Get next numeric value of sequence
@@ -563,6 +566,26 @@ public class MysqlSequenceGenerator {
         return today + (code != null ? code : seqInfo.code) + String.format("%0" + length + "d", nextLong);
     }
 
+    ////////////////////////////////////////////////////////////// update functions
+
+    public int updateValue(String sequenceName, long newValue) {
+        String valueCol = this.columnInfoMap.get(Column.Value).value;
+        String nameCol = this.columnInfoMap.get(Column.Name).value;
+        return withConnection(connection -> execute(connection,
+            "update " + this.tableName + " set " + valueCol + "=? where " + nameCol + "=?",
+            newValue, sequenceName
+        ));
+    }
+
+    public int updateStep(String sequenceName, long step) {
+        String stepCol = this.columnInfoMap.get(Column.Step).value;
+        String nameCol = this.columnInfoMap.get(Column.Name).value;
+        return withConnection(connection -> execute(connection,
+            "update " + this.tableName + " set " + stepCol + "=? where " + nameCol + "=?",
+            step, sequenceName
+        ));
+    }
+
     //////////////////////////////////////////////////////////////
 
     private String getColumnName(Column c) {
@@ -592,10 +615,17 @@ public class MysqlSequenceGenerator {
         }
     }
 
-    private void executeUpdate(Connection connection, String sequenceName) throws SQLException {
-        try (PreparedStatement ps = connection.prepareStatement(this.updateTemplate)) {
-            ps.setString(1, sequenceName);
-            ps.executeUpdate();
+    private void executeUpdateTemplate(Connection connection, String sequenceName) throws SQLException {
+        execute(connection, this.updateTemplate, sequenceName);
+    }
+
+    private int execute(Connection connection, String sql, Object... params) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            for (int i = 0; i < params.length; i++) {
+                Object param = params[i];
+                ps.setObject(i + 1, param);
+            }
+            return ps.executeUpdate();
         }
     }
 
