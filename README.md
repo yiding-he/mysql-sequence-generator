@@ -49,7 +49,7 @@ MysqlSequenceGenerator idGenerator = new MysqlSequenceGenerator(
     dataSource::getConnection, // 获得 Connection 的方式
     Connection::close,         // 关闭 Connection 的方式
     "t_sequence",              // 实际的序列表名称
-    false,                     // 是否异步获取新的序列号。提前异步获取新的序列号可提升性能
+    false,                     // 是否异步获取新的序列号。提前异步获取新的序列号可提升稍许性能
     Arrays.asList(             // 自定义字段名
         ColumnInfo.customName(Column.Min, "min_value"),  // 最小值字段的实际字段名为 min_value
         ColumnInfo.customName(Column.Max, "max_value"),  // 最大值字段的实际字段名为 max_value
