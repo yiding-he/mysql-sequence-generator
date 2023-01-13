@@ -15,7 +15,7 @@
 ```sql
 create table t_sequence(
   name  varchar(100) primary key             comment '序列名称',
-  code  varchar(5) not null default '00000'  comment '序列编号（嵌入最终序列中）',
+  code  varchar(5) not null default '00000'  comment '序列编号（用于区分不同序列种类）',
   value bigint     not null default 0        comment '当前值',
   min   bigint     not null default 0        comment '最小值',
   max   bigint     not null default 99999999 comment '最大值，当 value 达到最大值时重新从 min 开始',
