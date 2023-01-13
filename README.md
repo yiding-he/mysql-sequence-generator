@@ -60,9 +60,9 @@ MysqlSequenceGenerator idGenerator = new MysqlSequenceGenerator(
 
 ### 二、使用方法
 
-1. 获得一个 long 类型的序列：`long id = generator.nextLong("seq1")`
-1. 获得一个带年月日和编号的字符串序列：`String id = generator.nextSequence("seq1")` 
-1. 获得一个带年月日和自定义编号的字符串序列：`String id = generator.nextSequence("seq1", "001")`
+1. 获得一个 long 类型的序列：`long id = idGenerator.nextLong("seq1")`
+1. 获得一个带年月日和编号的字符串序列：`String id = idGenerator.nextSequence("seq1")` 
+1. 获得一个带年月日和自定义编号的字符串序列：`String id = idGenerator.nextSequence("seq1", "001")`
 
 使用的示例详见单元测试。
 
@@ -78,9 +78,9 @@ MysqlSequenceGenerator idGenerator = new MysqlSequenceGenerator(
 ### 三、兼容 Spring 数据库事务
 
 如果要在 Spring Boot 项目中使用并兼容 Spring 事务，请参考 
-`com.hyd.mysqlsequencegenerator.MysqlSequenceGeneratorApplication` 源码示例。
+`com.hyd.mysqlsequencegenerator.MysqlSequenceGeneratorApplication` [源码示例](https://github.com/yiding-he/mysql-sequence-generator/blob/master/src/main/java/com/hyd/mysqlsequencegenerator/MysqlSequenceGeneratorApplication.java)。
 
-### 四、原理
+### 四、原理简介
 
 1. MySQL 支持在 update 语句中使用 `last_insert_id(xxx)` 来临时保存最近生成的 ID 到会话中，接下来可以在同一会话中用
  `select last_insert_id()` 来获取刚生成的 ID。
