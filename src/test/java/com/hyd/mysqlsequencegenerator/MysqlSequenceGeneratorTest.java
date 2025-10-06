@@ -1,6 +1,5 @@
 package com.hyd.mysqlsequencegenerator;
 
-import com.mysql.jdbc.Driver;
 import org.apache.commons.dbcp2.BasicDataSource;
 import org.junit.Test;
 
@@ -18,7 +17,7 @@ public class MysqlSequenceGeneratorTest {
 
     @Test
     public void testNextSequence() {
-        MysqlSequenceGenerator mysqlSequenceGenerator = createMysqlSequenceGenerator();
+        MysqlSequenceGenerator mysqlSequenceGenerator = createMysqlSequenceGenerator(true);
         for (int i = 0; i < 10; i++) {
             System.out.println(mysqlSequenceGenerator.nextSequence("seq1"));
             System.out.println(mysqlSequenceGenerator.nextSequence("seq2"));
@@ -27,8 +26,8 @@ public class MysqlSequenceGeneratorTest {
     }
 
     @Test
-    public void testOnePerSection() throws Exception {
-        MysqlSequenceGenerator mysqlSequenceGenerator = createMysqlSequenceGenerator();
+    public void testOnePerSection() {
+        MysqlSequenceGenerator mysqlSequenceGenerator = createMysqlSequenceGenerator(true);
         mysqlSequenceGenerator.updateStep("seq1", 1);
         for (int i = 0; i < 100; i++) {
             System.out.println(mysqlSequenceGenerator.nextSequence("seq1"));
@@ -38,7 +37,7 @@ public class MysqlSequenceGeneratorTest {
 
     @Test
     public void benchmark() throws Exception {
-        MysqlSequenceGenerator mysqlSequenceGenerator = createMysqlSequenceGenerator();
+        MysqlSequenceGenerator mysqlSequenceGenerator = createMysqlSequenceGenerator(false);
         AtomicLong counter = new AtomicLong(0);
 
         Runnable task = () -> {
@@ -71,12 +70,12 @@ public class MysqlSequenceGeneratorTest {
         System.out.println("count: " + counter.get() + ", duration: " + duration);
     }
 
-    private MysqlSequenceGenerator createMysqlSequenceGenerator() {
+    private MysqlSequenceGenerator createMysqlSequenceGenerator(boolean withListener) {
 
         // 准备数据源
         BasicDataSource basicDataSource = new BasicDataSource();
         basicDataSource.setUrl(URL);
-        basicDataSource.setDriverClassName(Driver.class.getCanonicalName());
+        basicDataSource.setDriverClassName(com.mysql.cj.jdbc.Driver.class.getCanonicalName());
         basicDataSource.setUsername(USERNAME);
         basicDataSource.setPassword(PASSWORD);
 
@@ -85,10 +84,13 @@ public class MysqlSequenceGeneratorTest {
             new MysqlSequenceGenerator(basicDataSource);
 
         // 侦听序列更新事件
-        generator.setOnSequenceUpdate((min, max) -> {
-            String threadName = Thread.currentThread().getName();
-            System.out.println("[" + threadName + "] Sequence segment updated: " + min + " ~ " + max);
-        });
+        if (withListener) {
+            generator.setOnSequenceUpdate(update -> {
+                String threadName = Thread.currentThread().getName();
+                System.out.println("[" + threadName + "] " +
+                    "Sequence '" + update.sequenceName + "' updated: " + update.min + " ~ " + update.max);
+            });
+        }
 
         return generator;
     }

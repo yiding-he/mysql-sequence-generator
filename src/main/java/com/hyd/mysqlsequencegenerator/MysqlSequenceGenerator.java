@@ -1,5 +1,7 @@
 package com.hyd.mysqlsequencegenerator;
 
+import com.hyd.mysqlsequencegenerator.MysqlSequenceGenerator.SequenceUpdateListener.SequenceUpdateEvent;
+
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -13,13 +15,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 
 import static java.util.Optional.ofNullable;
 
 /**
- * https://github.com/yiding-he/mysql-sequence-generator
+ * <p>基于 MySQL/MariaDB 的 `last_insert_id()` 函数而写的序列生成工具</p>
+ * <p><a href="https://github.com/yiding-he/mysql-sequence-generator">Project Homepage</a></p>
  */
 public class MysqlSequenceGenerator {
 
@@ -43,7 +45,7 @@ public class MysqlSequenceGenerator {
 
     public static final int DEFAULT_INFO_CACHE_EXPIRE_MILLIS = 60000;
 
-    ////////////////////////////////////////////////////////////
+    /// /////////////////////////////////////////////////////////
 
     @FunctionalInterface
     interface F<A, B> {
@@ -61,6 +63,23 @@ public class MysqlSequenceGenerator {
     interface ConnectionCloser {
 
         void close(Connection connection) throws SQLException;
+    }
+
+    @FunctionalInterface
+    interface SequenceUpdateListener {
+        class SequenceUpdateEvent {
+            public final String sequenceName;
+            public final long min;
+            public final long max;
+
+            public SequenceUpdateEvent(String sequenceName, long min, long max) {
+                this.sequenceName = sequenceName;
+                this.min = min;
+                this.max = max;
+            }
+        }
+
+        void onSequenceUpdate(SequenceUpdateEvent event);
     }
 
     static class TimedCache<T> {
@@ -316,7 +335,7 @@ public class MysqlSequenceGenerator {
         }
     }
 
-    ////////////////////////////////////////////////////////////
+    //----------------------------------------------------
 
     private final ConnectionSupplier connectionSupplier;
 
@@ -344,9 +363,9 @@ public class MysqlSequenceGenerator {
         1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>()
     );
 
-    private BiConsumer<Long, Long> onSequenceUpdate;
+    private SequenceUpdateListener onSequenceUpdate;
 
-    //////////////////////////////////////////////////////////////
+    //----------------------------------------------------
 
     public static class Config {
 
@@ -528,7 +547,7 @@ public class MysqlSequenceGenerator {
         return queryCodeTemplate;
     }
 
-    public void setOnSequenceUpdate(BiConsumer<Long, Long> onSequenceUpdate) {
+    public void setOnSequenceUpdate(SequenceUpdateListener onSequenceUpdate) {
         this.onSequenceUpdate = onSequenceUpdate;
     }
 
@@ -566,7 +585,7 @@ public class MysqlSequenceGenerator {
         return today + (code != null ? code : seqInfo.code) + String.format("%0" + length + "d", nextLong);
     }
 
-    ////////////////////////////////////////////////////////////// update functions
+    //-------------------------- update functions --------------------------
 
     public int updateValue(String sequenceName, long newValue) {
         String valueCol = this.columnInfoMap.get(Column.Value).value;
@@ -586,7 +605,7 @@ public class MysqlSequenceGenerator {
         ));
     }
 
-    //////////////////////////////////////////////////////////////
+    //----------------------------------------------------
 
     private String getColumnName(Column c) {
         return columnInfoMap.containsKey(c) ? columnInfoMap.get(c).value : null;
@@ -630,7 +649,6 @@ public class MysqlSequenceGenerator {
     }
 
     private long[] querySegment(Connection connection, String sequenceName) throws SQLException {
-        // System.out.println("开始取新的序列段...");
         // __sleep__(1000);
         try (PreparedStatement ps = connection.prepareStatement(this.querySegmentTemplate)) {
             ps.setString(1, sequenceName);
@@ -641,7 +659,9 @@ public class MysqlSequenceGenerator {
 
                     if (onSequenceUpdate != null) {
                         try {
-                            onSequenceUpdate.accept(sectionMin, sectionMax);
+                            onSequenceUpdate.onSequenceUpdate(
+                                new SequenceUpdateEvent(sequenceName, sectionMin, sectionMax)
+                            );
                         } catch (Throwable e) {
                             // ignore event handler error
                         }
@@ -685,7 +705,7 @@ public class MysqlSequenceGenerator {
         return ps;
     }
 
-    ////////////////////////////////////////////////////////////// debugging
+    //-------------------------- Debugging Methods --------------------------
 
     private static void __sleep__(long millis) {
         try {

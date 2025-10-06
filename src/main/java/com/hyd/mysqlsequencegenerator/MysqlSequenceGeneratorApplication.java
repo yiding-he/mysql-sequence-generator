@@ -32,7 +32,8 @@ public class MysqlSequenceGeneratorApplication {
     /////////////////////////////////////////////////////////////////// 示例：如何构建 MysqlSequenceGenerator 对象
 
     /**
-     * 示例1：构建一个 MysqlSequenceGenerator 对象（附如何自定义表名）
+     * 示例1：在 Spring Boot 项目中构建一个独立于 Spring 事务的 MysqlSequenceGenerator 对象
+     * 在参数中可以通过 @Value 读取项目配置的自定义表名
      */
     @Bean
     MysqlSequenceGenerator dataSourceSequenceGenerator(
@@ -46,7 +47,7 @@ public class MysqlSequenceGeneratorApplication {
     }
 
     /**
-     * 示例2：构建一个可以兼容 Spring 事务的 MysqlSequenceGenerator 对象
+     * 示例2：在 Spring Boot 项目中构建一个可以兼容 Spring 事务的 MysqlSequenceGenerator 对象
      * 当处于 Spring 事务中时，会使用当前已经获得的数据库连接，而不是再获取新的连接
      * 否则依然从 DataSource 中获取新的数据库连接
      */

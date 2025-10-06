@@ -1,6 +1,6 @@
 # mysql-sequence-generator
 
-基于 MySQL 的 `last_insert_id()` 函数而写的序列生成工具。
+基于 MySQL/MariaDB 的 `last_insert_id()` 函数而写的序列生成工具。
 
 效率很高，没有数据库事务。
 
