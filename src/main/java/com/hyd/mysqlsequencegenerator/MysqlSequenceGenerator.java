@@ -113,19 +113,15 @@ public class MysqlSequenceGenerator {
         }
 
         public T get(String key, Supplier<T> supplier) {
-            CacheItem<T> item = cache.get(key);
-            if (item == null || item.expired()) {
-                synchronized (cache) {
-                    item = cache.get(key);
-                    if (item == null || item.expired()) {
-                        T value = supplier.get();
-                        if (value != null) {
-                            item = new CacheItem<>(value);
-                            cache.put(key, item);
-                        }
-                    }
+            CacheItem<T> item = cache.compute(key, (k, v) -> {
+                // return v if not expired
+                if (v != null && !v.expired()) {
+                    return v;
                 }
-            }
+                // discard v and retrieve new value
+                T value = supplier.get();
+                return value == null ? null : new CacheItem<>(value);
+            });
             return item == null ? null : item.value;
         }
 
